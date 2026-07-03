@@ -292,11 +292,33 @@ def _write_sheet(ws, sav_name: str, rows: list[dict]) -> None:
             cell.alignment = _ALIGN_CENTER if col_idx in (1, 5, 6) else _ALIGN_LEFT
             # if fill:
             #     cell.fill = fill
-
+        max_lineas = 1
+        anchos = {1: 5, 2: 20, 3: 40, 4: 40, 5: 10, 6: 10, 7: 20, 8: 20}
+        for col_idx, val in enumerate(values, start=1):
+            if val:
+                texto = str(val)
+                ancho = anchos.get(col_idx, 20)
+                lineas = sum(
+                    max(1, len(line) // ancho + 1)
+                    for line in texto.split("\n")
+                )
+                max_lineas = max(max_lineas, lineas)
+        ws.row_dimensions[r_idx].height = max_lineas * 15
     # Inmovilizar encabezados
+    ws.sheet_view.showGridLines = False
     ws.freeze_panes = "A3"
 
-
+def calcular_altura(ws, r_idx, ancho_col=30):
+    max_lineas = 1
+    for cell in ws[r_idx]:
+        if cell.value:
+            texto = str(cell.value)
+            lineas = sum(
+                max(1, len(line) // ancho_col + 1)
+                for line in texto.split("\n")
+            )
+            max_lineas = max(max_lineas, lineas)
+    ws.row_dimensions[r_idx].height = max_lineas * 15
 def generar_diccionario_excel(
     carpeta_sav: str,
     ruta_salida: str,
