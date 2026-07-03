@@ -35,7 +35,7 @@ def _eval_longitud(
         if tipo == "A":
             long_real = int(serie.astype(str).str.len().max()) if not serie.empty else 100
             if long_real == 0:
-                long_real = 100
+                long_real = int(longitud_declarada)
 
         elif tipo == "N":
             def num_len(v):
@@ -270,7 +270,7 @@ def _write_sheet(ws, sav_name: str, rows: list[dict]) -> None:
         cell.alignment = _ALIGN_CENTER
         cell.border = _BORDER
         ws.column_dimensions[get_column_letter(col_idx)].width = width
-        
+
     # Filas de datos
     for r_idx, row in enumerate(rows, start=3):
         ws.row_dimensions[r_idx].height = 30
