@@ -33,7 +33,9 @@ def _eval_longitud(
             return longitud_declarada, ""
 
         if tipo == "A":
-            long_real = int(serie.astype(str).str.len().max()) if not serie.empty else 0
+            long_real = int(serie.astype(str).str.len().max()) if not serie.empty else 100
+            if long_real == 0:
+                long_real = 100
 
         elif tipo == "N":
             def num_len(v):
@@ -231,7 +233,7 @@ _HEADER_COLS = [
     "ERROR",
 ]
 
-_COL_WIDTHS = [6, 28, 55, 55, 16, 10,10,10]
+_COL_WIDTHS = [6, 28, 55, 55, 20, 11,38,8]
 
 _FILL_HEADER = PatternFill("solid", start_color="1F4E79", end_color="1F4E79")
 _FILL_TITLE  = PatternFill("solid", start_color="2E75B6", end_color="2E75B6")
@@ -268,11 +270,11 @@ def _write_sheet(ws, sav_name: str, rows: list[dict]) -> None:
         cell.alignment = _ALIGN_CENTER
         cell.border = _BORDER
         ws.column_dimensions[get_column_letter(col_idx)].width = width
-
+        
     # Filas de datos
     for r_idx, row in enumerate(rows, start=3):
         ws.row_dimensions[r_idx].height = 30
-        fill = _FILL_ALT if r_idx % 2 == 0 else None
+        #fill = _FILL_ALT if r_idx % 2 == 0 else None
         values = [
             row["N"],
             row["NOMBRE DEL CAMPO"],
@@ -288,8 +290,8 @@ def _write_sheet(ws, sav_name: str, rows: list[dict]) -> None:
             cell.font = _FONT_DATA
             cell.border = _BORDER
             cell.alignment = _ALIGN_CENTER if col_idx in (1, 5, 6) else _ALIGN_LEFT
-            if fill:
-                cell.fill = fill
+            # if fill:
+            #     cell.fill = fill
 
     # Inmovilizar encabezados
     ws.freeze_panes = "A3"
