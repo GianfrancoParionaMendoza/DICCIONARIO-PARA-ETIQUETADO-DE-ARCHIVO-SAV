@@ -9,6 +9,7 @@ from src.ui.login import LoginScreen
 from src.ui.home import Home
 from src.core.generador_diccionario import GeneradorDiccionario
 from src.core.etiquetador import Etiquetador
+from src.core.revisor import Revisor
 from datetime import datetime
 import shutil
 # ── Rutas fijas en disco D ────────────────────────────────────────────────
@@ -19,6 +20,8 @@ RUTA_ETIQUETADOR_EXCEL_DIR   = Path("D:/ENCAL2026SYS/Etiquetador/Insumo")
 RUTA_ETIQUETADOR_INSUMO  = Path("D:/ENCAL2026SYS/Etiquetador/Insumo")
 RUTA_ETIQUETADOR_SALIDA  = Path("D:/ENCAL2026SYS/Etiquetador/Resultado")
 
+RUTA_REVISOR_INSUMO  = Path("D:/ENCAL2026SYS/Revisor/Insumo")
+RUTA_REVISOR_SALIDA  = Path("D:/ENCAL2026SYS/Revisor/Resultado")
 
 def main():
     app = QApplication(sys.argv)
@@ -36,6 +39,7 @@ def main():
 
     generador:   GeneradorDiccionario | None = None
     etiquetador: Etiquetador          | None = None
+    revisor: Revisor          | None = None
 
     def execute_generador():
         nonlocal generador
@@ -108,10 +112,43 @@ def main():
             carpeta_sav=str(RUTA_ETIQUETADOR_INSUMO),
             carpeta_salida=str(RUTA_ETIQUETADOR_SALIDA),
         )
+    def execute_revisor():
+        nonlocal revisor
 
+        # Crear carpetas si no existen
+        RUTA_REVISOR_INSUMO.mkdir(parents=True, exist_ok=True)
+        RUTA_REVISOR_SALIDA.mkdir(parents=True, exist_ok=True)
+
+        sav_files = list(RUTA_REVISOR_INSUMO.glob("*.sav")) + \
+                    list(RUTA_REVISOR_INSUMO.glob("*.SAV"))
+        if not sav_files:
+            QMessageBox.warning(
+                home, "Sin archivos",
+                f"La carpeta fue creada pero no tiene archivos .sav:\n{RUTA_REVISOR_INSUMO}"
+            )
+            return
+        
+        timestamp = datetime.now().strftime("%y%m%d_%H%M")
+        lote_dir = RUTA_REVISOR_SALIDA/ timestamp
+        lote_dir.mkdir(parents=True, exist_ok=True)
+        primer_sav = sav_files[0]
+        partes = primer_sav.stem.split("_")
+
+        codigo = partes[1] if len(partes) > 1 else primer_sav.stem
+        salida = lote_dir/ f"REVISOR_{codigo}.xlsx"
+
+        if revisor is None:
+            revisor = Revisor(home)
+        log = lote_dir/ f"insumo"
+        shutil.copytree(str(RUTA_REVISOR_INSUMO), str(log))
+
+        revisor.ejecutar(
+            carpeta=str(RUTA_REVISOR_INSUMO),
+            salida=str(salida),
+        )    
     home.card_generador_diccionario.clicked.connect(execute_generador)
     home.card_etiquetador.clicked.connect(execute_etiquetador)
-
+    home.card_revisor.clicked.connect(execute_revisor)
 
     sys.exit(app.exec())
 
