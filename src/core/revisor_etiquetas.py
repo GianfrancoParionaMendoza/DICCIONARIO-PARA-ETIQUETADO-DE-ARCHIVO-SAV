@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import string
 
 import openpyxl
 import pyreadstat
@@ -20,85 +21,112 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QThread, Signal
 
 
-def _total(col: str, df) -> int:
-    try:
-        return len(df[col])
-    except Exception:
-        return 0
+def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
 
+    if len(columnas) < 2:
+        raise ValueError("Se necesitan al menos 2 archivos para comparar")
 
-def _no_vacios(col: str, df) -> int:
-    try:
-        return df[col].count()
-    except Exception:
-        return 0
+    archivos = [entrada["ARCHIVO"] for entrada in columnas]
 
+    # campo -> {archivo: etiqueta}
+    etiquetas_por_campo = {}
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            campo = var["CAMPO"]
+            etiquetas_por_campo.setdefault(campo, {})[archivo] = var["ETIQUETA"]
 
-def _vacios(col: str, df) -> int:
-    try:
-        return df[col].isna().sum()
-    except Exception:
-        return 0
+    resultado = []
+    for campo, por_archivo in etiquetas_por_campo.items():
+        # Solo campos presentes en TODOS los archivos
+        if len(por_archivo) != len(archivos):
+            continue
 
-def _tipo_variable(col: str, df) -> str:
-    try:
-        s = df[col]
+        etiquetas = [por_archivo[a] for a in archivos]
 
-        if pd.api.types.is_integer_dtype(s):
-            return "Entera"
-        elif pd.api.types.is_float_dtype(s):
-            return "Numérica"
-        elif pd.api.types.is_string_dtype(s) or s.dtype == object:
-            return "Texto"
-        elif pd.api.types.is_datetime64_any_dtype(s):
-            return "Fecha"
-        elif pd.api.types.is_bool_dtype(s):
-            return "Lógica"
-        else:
-            return "Otro"
-    except Exception:
+        # Solo nos interesan los campos donde las etiquetas NO son todas iguales
+        if len(set(etiquetas)) == 1:
+            continue
+
+        fila = {"CAMPO": campo}
+        for archivo in archivos:
+            fila[f"ETIQUETA {archivo}"] = por_archivo[archivo]
+
+        resultado.append(fila)
+
+    return resultado
+
+def comparar_valores_comunes(columnas: list[dict]) -> list[dict]:
+
+    if len(columnas) < 2:
+        raise ValueError("Se necesitan al menos 2 archivos para comparar")
+
+    archivos = [entrada["ARCHIVO"] for entrada in columnas]
+
+    # campo -> {archivo: etiquetas_de_valores}
+    valores_por_campo = {}
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            campo = var["CAMPO"]
+            valores_por_campo.setdefault(campo, {})[archivo] = var["ETIQUETAS DE VALORES"]
+
+    resultado = []
+    for campo, por_archivo in valores_por_campo.items():
+        # Solo campos presentes en TODOS los archivos
+        if len(por_archivo) != len(archivos):
+            continue
+
+        valores = [por_archivo[a] for a in archivos]
+
+        # Solo nos interesan los campos donde los valores NO son todos iguales
+        if len(set(valores)) == 1:
+            continue
+
+        fila = {"CAMPO": campo}
+        for archivo in archivos:
+            fila[f"VALORES {archivo}"] = por_archivo[archivo]
+
+        resultado.append(fila)
+
+    return resultado
+def _fmt_valores(val_dict: dict) -> str:
+    """Convierte {1.0: 'Sí', 2.0: 'No'} → '1. Sí\n2. No'"""
+    if not val_dict:
         return ""
+    partes = []
+    for k, v in sorted(val_dict.items()):
+        try:
+            key_str = str(int(float(k)))
+        except (ValueError, TypeError):
+            key_str = str(k)
+        partes.append(f"{key_str}. {v}")
+    return "\n".join(partes)
 
+def _build_rows_for_sav(path: Path) -> dict:
+    path = Path(path)
+    df, meta = pyreadstat.read_sav(path)
 
-def _build_rows_for_sav(path: str) -> list[dict]:
-    """Lee un SAV y devuelve lista de dicts con los campos del diccionario."""
-    df, meta = pyreadstat.read_sav(path)  # necesitamos df para min/max y errores
     col_labels = meta.column_names_to_labels or {}
-    rows = []
-    for i, col in enumerate(meta.column_names, start=1):
-        tipo= _tipo_variable(col, df)
-        etiqueta    = col_labels.get(col, "")
+    val_labels = meta.variable_value_labels or {}
 
-        total = _total(col, df)
-        no_vacios = _no_vacios(col, df)
-        vacios=_vacios(col, df)
-        rows.append({
-            "N":                          i,
-            "TIPO DE VARIABLE":           tipo,
-            "VARIABLE":           col,
-            "PREGUNTA": etiqueta,
-            "TECHOS":None,
-            "TOTAL":total,
-            "NO VACIOS":no_vacios,
-            "VACIOS":vacios,
-            "OBSERVACION":None
+    variables = []
+
+    for col in meta.column_names:
+        variables.append({
+            "CAMPO": col,
+            "ETIQUETA": col_labels.get(col, ""),
+            "ETIQUETAS DE VALORES": _fmt_valores(val_labels.get(col, {})),
         })
-    return rows
 
-# ---------------------------------------------------------------------------
-# Excel writer
-# ---------------------------------------------------------------------------
-
+    return {
+        "ARCHIVO": path.name,
+        "VARIABLES": variables
+    }
 _HEADER_COLS = [
-    "Nº",
-    "TIPO DE VARIABLE",
-    "VARIABLE",
-    "PREGUNTA",
-    "TECHOS",
-    "TOTAL",
-    "NO VACIOS",
-    "VACIOS",
-    "OBSERVACION",
+    "CAMPO",
+    "ETIQUETA A",
+    "ETIQUETA B",
 ]
 
 _COL_WIDTHS = [6, 28, 55, 55, 20, 11,38,8,20]
@@ -119,20 +147,27 @@ _ALIGN_LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True
 
 
 def _write_sheet(ws, sav_name: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+
+    # Headers dinámicos a partir de las keys del primer row
+    headers = list(rows[0].keys())
+    col_widths = [30 if h == "Campo común" else 12 if h == "ETIQUETA_IGUAL" else 25 for h in headers]
+
     ws.row_dimensions[1].height = 30
     ws.row_dimensions[2].height = 18
 
-    # Fila 1: título
-    ws.merge_cells(f"A1:{get_column_letter(len(_HEADER_COLS))}1")
-    cell = ws["A1"]
-    cell.value = f"Revision de Valores — {sav_name.upper()}"
-    cell.font = _FONT_TITLE
-    cell.fill = _FILL_TITLE
-    cell.alignment = _ALIGN_CENTER
+    # # Fila 1: título
+    # ws.merge_cells(f"A1:{get_column_letter(len(headers))}1")
+    # cell = ws["A1"]
+    # cell.value = f"Revision de Valores — {sav_name.upper()}"
+    # cell.font = _FONT_TITLE
+    # cell.fill = _FILL_TITLE
+    # cell.alignment = _ALIGN_CENTER
 
     # Fila 2: encabezados
-    for col_idx, (header, width) in enumerate(zip(_HEADER_COLS, _COL_WIDTHS), start=1):
-        cell = ws.cell(row=2, column=col_idx, value=header)
+    for col_idx, (header, width) in enumerate(zip(headers, col_widths), start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = _FONT_HEADER
         cell.fill = _FILL_HEADER
         cell.alignment = _ALIGN_CENTER
@@ -140,39 +175,30 @@ def _write_sheet(ws, sav_name: str, rows: list[dict]) -> None:
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
     # Filas de datos
-    for r_idx, row in enumerate(rows, start=3):
+    for r_idx, row in enumerate(rows, start=2):
         ws.row_dimensions[r_idx].height = 30
-        #fill = _FILL_ALT if r_idx % 2 == 0 else None
-        values = [
-            row["N"],
-            row["TIPO DE VARIABLE"],
-            row["VARIABLE"],
-            row["PREGUNTA"],
-            row["TECHOS"],
-            row["TOTAL"],
-            row["NO VACIOS"],
-            row["VACIOS"],
-            row["OBSERVACION"],
-        ]
+        values = [row[h] for h in headers]
+
         for col_idx, val in enumerate(values, start=1):
             cell = ws.cell(row=r_idx, column=col_idx, value=val)
             cell.font = _FONT_DATA
             cell.border = _BORDER
-            cell.alignment = _ALIGN_CENTER if col_idx in (1, 5, 6) else _ALIGN_LEFT
-            # if fill:
-            #     cell.fill = fill
+            # Centra "Campo común" y "ETIQUETA_IGUAL", el resto alineado a la izquierda
+            header = headers[col_idx - 1]
+            cell.alignment = _ALIGN_CENTER if header in ("Campo común", "ETIQUETA_IGUAL") else _ALIGN_LEFT
+
         max_lineas = 1
-        anchos = {1: 5, 2: 20}
         for col_idx, val in enumerate(values, start=1):
             if val:
                 texto = str(val)
-                ancho = anchos.get(col_idx, 20)
+                ancho = col_widths[col_idx - 1]
                 lineas = sum(
                     max(1, len(line) // ancho + 1)
                     for line in texto.split("\n")
                 )
                 max_lineas = max(max_lineas, lineas)
         ws.row_dimensions[r_idx].height = max_lineas * 15
+
     # Inmovilizar encabezados
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = "A3"
@@ -208,16 +234,26 @@ def generar_revision_excel(
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)  # quitar hoja por defecto
-
+    columnas = []
     total = len(sav_files)
     for i, sav_path in enumerate(sav_files, start=1):
         if callback_progreso:
             callback_progreso(int((i - 1) / total * 90))
 
-        rows = _build_rows_for_sav(str(sav_path))
-        sheet_name = sav_path.stem[:31]  # Excel limita a 31 chars
-        ws = wb.create_sheet(title=sheet_name)
-        _write_sheet(ws, sav_path.stem, rows)
+        rows = _build_rows_for_sav(sav_path)
+        columnas.append(rows)
+
+    filas = comparar_campos_comunes(columnas)
+    sheet_name = 'REVISION ETIQUETAS'
+    ws = wb.create_sheet(title=sheet_name)
+    print("filas", filas)
+    _write_sheet(ws, sav_path.stem, filas)
+
+    filas_valores = comparar_valores_comunes(columnas)
+    sheet_name_valores = 'REVISION VALORES'
+    ws2 = wb.create_sheet(title=sheet_name_valores)
+    print("filas_valores", filas_valores)
+    _write_sheet(ws2, sav_path.stem, filas_valores)
 
     if callback_progreso:
         callback_progreso(95)
@@ -230,13 +266,6 @@ def generar_revision_excel(
         callback_progreso(100)
 
     return str(out_path)
-
-
-
-
-
-
-
 class _GenWorker(QThread):
     finished = Signal(str)
     error    = Signal(str)
@@ -259,7 +288,7 @@ class _GenWorker(QThread):
             self.error.emit(str(exc))
 
 
-class Revisor:
+class RevisorEtiquetas:
 
     def __init__(self, parent=None):
         self._parent = parent

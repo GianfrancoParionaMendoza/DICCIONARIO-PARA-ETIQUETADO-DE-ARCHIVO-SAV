@@ -119,7 +119,8 @@ class Home(QMainWindow):
         modules = [
             ("📊", "Generador de Diccionarios",  "Genera de manera automatica el diccionario de datos",  True),
             ("🔍", "Etiquetador de Diccionario",  "Etiquetar archivos sav",     True),
-             ("🔍", "Revisor",  "revisar archivos sav",     True),
+            ("🔍", "Revisor",  "revisar archivos sav",     True),
+            ("🔍", "Revisor Etiquetas",  "revisar etiquetas de archivos sav",     True),
         ]
 
         self._cards: list[NavCard] = []
@@ -140,4 +141,8 @@ class Home(QMainWindow):
     @property
     def card_revisor(self) -> NavCard:
         return self._cards[2]
+    
+    @property
+    def card_revisor_etiquetas(self) -> NavCard:
+        return self._cards[3]
     
