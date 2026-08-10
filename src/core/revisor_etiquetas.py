@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtCore import QThread, Signal
-
+import json
 
 def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
 
@@ -27,6 +27,7 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
         raise ValueError("Se necesitan al menos 2 archivos para comparar")
 
     archivos = [entrada["ARCHIVO"] for entrada in columnas]
+    NO_PRESENTE = "El campo no esta presente en la data entregada."
 
     # campo -> {archivo: etiqueta}
     etiquetas_por_campo = {}
@@ -38,19 +39,23 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
 
     resultado = []
     for campo, por_archivo in etiquetas_por_campo.items():
-        # Solo campos presentes en TODOS los archivos
-        if len(por_archivo) != len(archivos):
+        # Debe aparecer en al menos 2 archivos para que tenga sentido comparar
+        if len(por_archivo) < 2:
             continue
 
-        etiquetas = [por_archivo[a] for a in archivos]
+        # Construimos las etiquetas para TODOS los archivos, marcando
+        # explícitamente los que no tienen el campo
+        etiquetas_completas = [
+            por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        ]
 
-        # Solo nos interesan los campos donde las etiquetas NO son todas iguales
-        if len(set(etiquetas)) == 1:
+        # Ahora sí: si hay variación (incluyendo ausencias), se reporta
+        if len(set(etiquetas_completas)) == 1:
             continue
 
         fila = {"CAMPO": campo}
-        for archivo in archivos:
-            fila[f"ETIQUETA {archivo}"] = por_archivo[archivo]
+        for archivo, etiqueta in zip(archivos, etiquetas_completas):
+            fila[f"ETIQUETA {archivo}"] = etiqueta
 
         resultado.append(fila)
 
@@ -62,6 +67,7 @@ def comparar_valores_comunes(columnas: list[dict]) -> list[dict]:
         raise ValueError("Se necesitan al menos 2 archivos para comparar")
 
     archivos = [entrada["ARCHIVO"] for entrada in columnas]
+    NO_PRESENTE = "El campo no esta presente en la data entregada."
 
     # campo -> {archivo: etiquetas_de_valores}
     valores_por_campo = {}
@@ -73,19 +79,31 @@ def comparar_valores_comunes(columnas: list[dict]) -> list[dict]:
 
     resultado = []
     for campo, por_archivo in valores_por_campo.items():
-        # Solo campos presentes en TODOS los archivos
-        if len(por_archivo) != len(archivos):
+        # Al menos presente en 2 archivos para poder comparar
+        if len(por_archivo) < 2:
             continue
 
-        valores = [por_archivo[a] for a in archivos]
+        # Armamos los valores para TODOS los archivos, marcando ausencias
+        valores_completos = [
+            por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        ]
+
+        # Para poder meterlos en un set (dicts no son hasheables),
+        # los serializamos de forma determinística
+        def clave_comparable(v):
+            if v == NO_PRESENTE:
+                return NO_PRESENTE
+            return json.dumps(v, sort_keys=True, ensure_ascii=False)
+
+        claves = [clave_comparable(v) for v in valores_completos]
 
         # Solo nos interesan los campos donde los valores NO son todos iguales
-        if len(set(valores)) == 1:
+        if len(set(claves)) == 1:
             continue
 
         fila = {"CAMPO": campo}
-        for archivo in archivos:
-            fila[f"VALORES {archivo}"] = por_archivo[archivo]
+        for archivo, valor in zip(archivos, valores_completos):
+            fila[f"VALORES {archivo}"] = valor
 
         resultado.append(fila)
 
@@ -246,13 +264,13 @@ def generar_revision_excel(
     filas = comparar_campos_comunes(columnas)
     sheet_name = 'REVISION ETIQUETAS'
     ws = wb.create_sheet(title=sheet_name)
-    print("filas", filas)
+  
     _write_sheet(ws, sav_path.stem, filas)
 
     filas_valores = comparar_valores_comunes(columnas)
     sheet_name_valores = 'REVISION VALORES'
     ws2 = wb.create_sheet(title=sheet_name_valores)
-    print("filas_valores", filas_valores)
+
     _write_sheet(ws2, sav_path.stem, filas_valores)
 
     if callback_progreso:
