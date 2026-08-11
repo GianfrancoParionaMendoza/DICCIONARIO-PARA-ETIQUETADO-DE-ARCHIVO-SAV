@@ -27,7 +27,8 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
         raise ValueError("Se necesitan al menos 2 archivos para comparar")
 
     archivos = [entrada["ARCHIVO"] for entrada in columnas]
-    NO_PRESENTE = "El campo no esta presente en la data entregada."
+    NO_PRESENTE = "El campo no esta presente ."
+    SIN_ETIQUETA = "Sin etiqueta."
 
     # campo -> {archivo: etiqueta}
     etiquetas_por_campo = {}
@@ -37,37 +38,53 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
             campo = var["CAMPO"]
             etiquetas_por_campo.setdefault(campo, {})[archivo] = var["ETIQUETA"]
 
+    def normalizar(v):
+        """Trata None, '' o espacios en blanco como 'sin etiqueta'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return SIN_ETIQUETA
+        return v
+
     resultado = []
     for campo, por_archivo in etiquetas_por_campo.items():
         # Debe aparecer en al menos 2 archivos para que tenga sentido comparar
         if len(por_archivo) < 2:
             continue
 
-        # Construimos las etiquetas para TODOS los archivos, marcando
-        # explícitamente los que no tienen el campo
-        etiquetas_completas = [
-            por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        # Valor crudo por archivo (para mostrar), marcando ausencia del campo
+        etiquetas_crudas = {
+            archivo: por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        }
+
+        # Claves normalizadas para comparar (NO_PRESENTE se mantiene aparte)
+        claves = [
+            v if v == NO_PRESENTE else normalizar(v)
+            for v in etiquetas_crudas.values()
         ]
 
-        # Ahora sí: si hay variación (incluyendo ausencias), se reporta
-        if len(set(etiquetas_completas)) == 1:
+        # Ahora sí: si hay variación real (incluyendo ausencias), se reporta
+        if len(set(claves)) == 1:
             continue
 
         fila = {"CAMPO": campo}
-        for archivo, etiqueta in zip(archivos, etiquetas_completas):
-            fila[f"ETIQUETA {archivo}"] = etiqueta
+        for archivo in archivos:
+            valor = etiquetas_crudas[archivo]
+            if valor == NO_PRESENTE:
+                fila[f"ETIQUETA {archivo}"] = NO_PRESENTE
+            else:
+                fila[f"ETIQUETA {archivo}"] = normalizar(valor)
 
         resultado.append(fila)
 
     return resultado
-
 def comparar_valores_comunes(columnas: list[dict]) -> list[dict]:
 
     if len(columnas) < 2:
         raise ValueError("Se necesitan al menos 2 archivos para comparar")
 
     archivos = [entrada["ARCHIVO"] for entrada in columnas]
-    NO_PRESENTE = "El campo no esta presente en la data entregada."
+    NO_PRESENTE = "El campo no esta presente."
+    SIN_ETIQUETAS = "Sin valores."
+    AUSENCIA = "__AUSENCIA__"  # marcador interno solo para "campo no existe"
 
     # campo -> {archivo: etiquetas_de_valores}
     valores_por_campo = {}
@@ -77,33 +94,56 @@ def comparar_valores_comunes(columnas: list[dict]) -> list[dict]:
             campo = var["CAMPO"]
             valores_por_campo.setdefault(campo, {})[archivo] = var["ETIQUETAS DE VALORES"]
 
+    def normalizar(v):
+        """Trata None y {} (o vacío) como 'sin etiquetas'."""
+        if v is None or v == {} or v == "":
+            return SIN_ETIQUETAS
+        return v
+
+    def clave_comparable(v):
+        """
+        Solo NO_PRESENTE (campo ausente del archivo) se excluye de la
+        comparación. SIN_ETIQUETAS SÍ es un valor comparable: un campo
+        presente sin etiquetas es distinto de uno presente con etiquetas.
+        """
+        if v == NO_PRESENTE:
+            return AUSENCIA
+        v_norm = normalizar(v)
+        if v_norm == SIN_ETIQUETAS:
+            return SIN_ETIQUETAS
+        return json.dumps(v_norm, sort_keys=True, ensure_ascii=False)
+
     resultado = []
     for campo, por_archivo in valores_por_campo.items():
-        # Al menos presente en 2 archivos para poder comparar
         if len(por_archivo) < 2:
             continue
 
-        # Armamos los valores para TODOS los archivos, marcando ausencias
-        valores_completos = [
-            por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
-        ]
+        # Valor crudo por archivo (para mostrar), marcando ausencia de campo
+        valores_crudos = {
+            archivo: por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        }
 
-        # Para poder meterlos en un set (dicts no son hasheables),
-        # los serializamos de forma determinística
-        def clave_comparable(v):
-            if v == NO_PRESENTE:
-                return NO_PRESENTE
-            return json.dumps(v, sort_keys=True, ensure_ascii=False)
+        claves = [clave_comparable(v) for v in valores_crudos.values()]
 
-        claves = [clave_comparable(v) for v in valores_completos]
+        # Excluimos solo AUSENCIA (campo no presente en ese archivo);
+        # SIN_ETIQUETAS se queda como valor comparable
+        claves_reales = {c for c in claves if c != AUSENCIA}
 
-        # Solo nos interesan los campos donde los valores NO son todos iguales
-        if len(set(claves)) == 1:
+        # Si no hay ningún archivo donde el campo exista, o todos los
+        # que existen coinciden (mismas etiquetas, o todos sin etiquetas),
+        # no hay diferencia que reportar
+        if len(claves_reales) <= 1:
             continue
 
         fila = {"CAMPO": campo}
-        for archivo, valor in zip(archivos, valores_completos):
-            fila[f"VALORES {archivo}"] = valor
+        for archivo in archivos:
+            valor = valores_crudos[archivo]
+            if valor == NO_PRESENTE:
+                fila[f"VALORES {archivo}"] = NO_PRESENTE
+            elif normalizar(valor) == SIN_ETIQUETAS:
+                fila[f"VALORES {archivo}"] = SIN_ETIQUETAS
+            else:
+                fila[f"VALORES {archivo}"] = valor
 
         resultado.append(fila)
 
