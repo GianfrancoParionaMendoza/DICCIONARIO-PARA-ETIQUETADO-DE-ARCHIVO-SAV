@@ -26,6 +26,9 @@ RUTA_REVISOR_SALIDA  = Path("D:/ENCAL2026SYS/Revisor/Resultado")
 
 RUTA_REVISOR_ETIQUETAS_INSUMO  = Path("D:/ENCAL2026SYS/Revisor_Etiquetas/Insumo")
 RUTA_REVISOR_ETIQUETAS_SALIDA  = Path("D:/ENCAL2026SYS/Revisor_Etiquetas/Resultado")
+
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")

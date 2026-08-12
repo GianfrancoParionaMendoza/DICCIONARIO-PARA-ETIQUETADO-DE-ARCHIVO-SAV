@@ -29,6 +29,7 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
     archivos = [entrada["ARCHIVO"] for entrada in columnas]
     NO_PRESENTE = "El campo no esta presente ."
     SIN_ETIQUETA = "Sin etiqueta."
+    AUSENCIA = "__AUSENCIA__"  # marcador interno solo para "campo no existe"
 
     # campo -> {archivo: etiqueta}
     etiquetas_por_campo = {}
@@ -44,6 +45,16 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
             return SIN_ETIQUETA
         return v
 
+    def clave_comparable(v):
+        """
+        Solo NO_PRESENTE (campo ausente del archivo) se excluye de la
+        comparación. SIN_ETIQUETA SÍ es un valor comparable: un campo
+        presente sin etiqueta es distinto de uno presente con etiqueta.
+        """
+        if v == NO_PRESENTE:
+            return AUSENCIA
+        return normalizar(v)
+
     resultado = []
     for campo, por_archivo in etiquetas_por_campo.items():
         # Debe aparecer en al menos 2 archivos para que tenga sentido comparar
@@ -55,14 +66,16 @@ def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
             archivo: por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
         }
 
-        # Claves normalizadas para comparar (NO_PRESENTE se mantiene aparte)
-        claves = [
-            v if v == NO_PRESENTE else normalizar(v)
-            for v in etiquetas_crudas.values()
-        ]
+        claves = [clave_comparable(v) for v in etiquetas_crudas.values()]
 
-        # Ahora sí: si hay variación real (incluyendo ausencias), se reporta
-        if len(set(claves)) == 1:
+        # Excluimos solo AUSENCIA (campo no presente en ese archivo);
+        # SIN_ETIQUETA se queda como valor comparable
+        claves_reales = {c for c in claves if c != AUSENCIA}
+
+        # Si no hay ningún archivo donde el campo exista, o todos los
+        # que existen coinciden (misma etiqueta, o todos sin etiqueta),
+        # no hay diferencia que reportar
+        if len(claves_reales) <= 1:
             continue
 
         fila = {"CAMPO": campo}
