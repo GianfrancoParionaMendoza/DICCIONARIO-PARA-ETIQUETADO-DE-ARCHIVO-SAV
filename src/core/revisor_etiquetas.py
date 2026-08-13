@@ -21,6 +21,221 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QThread, Signal
 import json
 
+def campos_sin_etiquetas(columnas: list[dict]) -> list[dict]:
+
+    SIN_ETIQUETA = "Sin etiqueta."
+
+    def normalizar(v):
+        """Trata None, '' o espacios en blanco como 'sin etiqueta'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return SIN_ETIQUETA
+        return v
+
+    resultado = []
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            campo = var["CAMPO"]
+            etiqueta = var["ETIQUETA"]
+
+            if normalizar(etiqueta) == SIN_ETIQUETA:
+                resultado.append({
+                    "ARCHIVO": archivo,
+                    "CAMPO": campo,
+                })
+
+    return resultado
+def campos_numericos_sin_etiquetas_valores(columnas: list[dict]) -> list[dict]:
+
+    SIN_ETIQUETAS = "Sin etiquetas de valores."
+
+    def normalizar(v):
+        """Trata None y {} (o vacío) como 'sin etiquetas'."""
+        if v is None or v == {} or v == "":
+            return SIN_ETIQUETAS
+        return v
+
+    resultado = []
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            print("car",var["TIPO"] )
+            if var["TIPO"] != "float64":
+                continue
+
+            campo = var["CAMPO"]
+            valores = var["ETIQUETAS DE VALORES"]
+
+            if normalizar(valores) == SIN_ETIQUETAS:
+                resultado.append({
+                    "ARCHIVO": archivo,
+                    "CAMPO": campo,
+                })
+
+    return resultado
+def campos_string_con_etiquetas_valores(columnas: list[dict]) -> list[dict]:
+
+    SIN_ETIQUETAS = "Sin etiquetas de valores."
+
+    def normalizar(v):
+        """Trata None y {} (o vacío) como 'sin etiquetas'."""
+        if v is None or v == {} or v == "":
+            return SIN_ETIQUETAS
+        return v
+
+    resultado = []
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            if var["TIPO"] != "str":  # <-- confirmar valor exacto
+                continue
+
+            campo = var["CAMPO"]
+            valores = var["ETIQUETAS DE VALORES"]
+
+            if normalizar(valores) != SIN_ETIQUETAS:
+                resultado.append({
+                    "ARCHIVO": archivo,
+                    "CAMPO": campo,
+                })
+
+    return resultado
+def comparar_campos_comunes_tipo(columnas: list[dict]) -> list[dict]:
+
+    if len(columnas) < 2:
+        raise ValueError("Se necesitan al menos 2 archivos para comparar")
+
+    archivos = [entrada["ARCHIVO"] for entrada in columnas]
+    NO_PRESENTE = "El campo no esta presente ."
+    SIN_ETIQUETA = "Sin etiqueta."
+    AUSENCIA = "__AUSENCIA__"  # marcador interno solo para "campo no existe"
+
+    # campo -> {archivo: etiqueta}
+    etiquetas_por_campo = {}
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            campo = var["CAMPO"]
+            etiquetas_por_campo.setdefault(campo, {})[archivo] = var["TIPO"]
+
+    def normalizar(v):
+        """Trata None, '' o espacios en blanco como 'sin etiqueta'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return SIN_ETIQUETA
+        return v
+
+    def clave_comparable(v):
+        """
+        Solo NO_PRESENTE (campo ausente del archivo) se excluye de la
+        comparación. SIN_ETIQUETA SÍ es un valor comparable: un campo
+        presente sin etiqueta es distinto de uno presente con etiqueta.
+        """
+        if v == NO_PRESENTE:
+            return AUSENCIA
+        return normalizar(v)
+
+    resultado = []
+    for campo, por_archivo in etiquetas_por_campo.items():
+        # Debe aparecer en al menos 2 archivos para que tenga sentido comparar
+        if len(por_archivo) < 2:
+            continue
+
+        # Valor crudo por archivo (para mostrar), marcando ausencia del campo
+        etiquetas_crudas = {
+            archivo: por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        }
+
+        claves = [clave_comparable(v) for v in etiquetas_crudas.values()]
+
+        # Excluimos solo AUSENCIA (campo no presente en ese archivo);
+        # SIN_ETIQUETA se queda como valor comparable
+        claves_reales = {c for c in claves if c != AUSENCIA}
+
+        # Si no hay ningún archivo donde el campo exista, o todos los
+        # que existen coinciden (misma etiqueta, o todos sin etiqueta),
+        # no hay diferencia que reportar
+        if len(claves_reales) <= 1:
+            continue
+
+        fila = {"CAMPO": campo}
+        for archivo in archivos:
+            valor = etiquetas_crudas[archivo]
+            if valor == NO_PRESENTE:
+                fila[f"ETIQUETA {archivo}"] = NO_PRESENTE
+            else:
+                fila[f"ETIQUETA {archivo}"] = normalizar(valor)
+
+        resultado.append(fila)
+
+    return resultado
+def comparar_campos_comunes_longitud(columnas: list[dict]) -> list[dict]:
+
+    if len(columnas) < 2:
+        raise ValueError("Se necesitan al menos 2 archivos para comparar")
+
+    archivos = [entrada["ARCHIVO"] for entrada in columnas]
+    NO_PRESENTE = "El campo no esta presente ."
+    SIN_ETIQUETA = "Sin etiqueta."
+    AUSENCIA = "__AUSENCIA__"  # marcador interno solo para "campo no existe"
+
+    # campo -> {archivo: etiqueta}
+    etiquetas_por_campo = {}
+    for entrada in columnas:
+        archivo = entrada["ARCHIVO"]
+        for var in entrada["VARIABLES"]:
+            campo = var["CAMPO"]
+            etiquetas_por_campo.setdefault(campo, {})[archivo] = var["LONGITUD"]
+
+    def normalizar(v):
+        """Trata None, '' o espacios en blanco como 'sin etiqueta'."""
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return SIN_ETIQUETA
+        return v
+
+    def clave_comparable(v):
+        """
+        Solo NO_PRESENTE (campo ausente del archivo) se excluye de la
+        comparación. SIN_ETIQUETA SÍ es un valor comparable: un campo
+        presente sin etiqueta es distinto de uno presente con etiqueta.
+        """
+        if v == NO_PRESENTE:
+            return AUSENCIA
+        return normalizar(v)
+
+    resultado = []
+    for campo, por_archivo in etiquetas_por_campo.items():
+        # Debe aparecer en al menos 2 archivos para que tenga sentido comparar
+        if len(por_archivo) < 2:
+            continue
+
+        # Valor crudo por archivo (para mostrar), marcando ausencia del campo
+        etiquetas_crudas = {
+            archivo: por_archivo.get(archivo, NO_PRESENTE) for archivo in archivos
+        }
+
+        claves = [clave_comparable(v) for v in etiquetas_crudas.values()]
+
+        # Excluimos solo AUSENCIA (campo no presente en ese archivo);
+        # SIN_ETIQUETA se queda como valor comparable
+        claves_reales = {c for c in claves if c != AUSENCIA}
+
+        # Si no hay ningún archivo donde el campo exista, o todos los
+        # que existen coinciden (misma etiqueta, o todos sin etiqueta),
+        # no hay diferencia que reportar
+        if len(claves_reales) <= 1:
+            continue
+
+        fila = {"CAMPO": campo}
+        for archivo in archivos:
+            valor = etiquetas_crudas[archivo]
+            if valor == NO_PRESENTE:
+                fila[f"ETIQUETA {archivo}"] = NO_PRESENTE
+            else:
+                fila[f"ETIQUETA {archivo}"] = normalizar(valor)
+
+        resultado.append(fila)
+
+    return resultado
 def comparar_campos_comunes(columnas: list[dict]) -> list[dict]:
 
     if len(columnas) < 2:
@@ -180,20 +395,25 @@ def _build_rows_for_sav(path: Path) -> dict:
 
     col_labels = meta.column_names_to_labels or {}
     val_labels = meta.variable_value_labels or {}
-
+    storage_width = meta.variable_storage_width or {}
     variables = []
 
     for col in meta.column_names:
+       
+
         variables.append({
             "CAMPO": col,
             "ETIQUETA": col_labels.get(col, ""),
             "ETIQUETAS DE VALORES": _fmt_valores(val_labels.get(col, {})),
+            "TIPO":str(df[col].dtype),
+            "LONGITUD": storage_width.get(col),
         })
 
     return {
         "ARCHIVO": path.name,
         "VARIABLES": variables
     }
+
 _HEADER_COLS = [
     "CAMPO",
     "ETIQUETA A",
@@ -326,6 +546,41 @@ def generar_revision_excel(
 
     _write_sheet(ws2, sav_path.stem, filas_valores)
 
+    filas_campos_sin_etiqueta = campos_sin_etiquetas(columnas)
+ 
+    sheet_campos_sin_etiqueta = 'REVISION CAMPOS SIN ETIQUETAS'
+    ws2 = wb.create_sheet(title=sheet_campos_sin_etiqueta)
+    _write_sheet(ws2, sav_path.stem, filas_campos_sin_etiqueta)
+
+    filas_campos_sin_valores_etiqueta = campos_numericos_sin_etiquetas_valores(columnas)
+    
+    sheet_campos_sin_valores_etiqueta = 'REVISION CAMPOS NUM SIN VALORES'
+    ws2 = wb.create_sheet(title=sheet_campos_sin_valores_etiqueta)
+    
+    _write_sheet(ws2, sav_path.stem, filas_campos_sin_valores_etiqueta)
+
+    filas_campos_str_con_valores_etiqueta = campos_string_con_etiquetas_valores(columnas)
+   
+    sheet_campos_str_con_valores_etiqueta = 'REVISION CAMPOS str CON VALORES'
+    ws2 = wb.create_sheet(title=sheet_campos_str_con_valores_etiqueta)
+        
+    _write_sheet(ws2, sav_path.stem, filas_campos_str_con_valores_etiqueta)
+
+    filas_campos_comunes_tipo = comparar_campos_comunes_tipo(columnas)
+
+    sheet_filas_campos_comunes_tipo = 'REVISION CAMPOS TIPO '
+    ws2 = wb.create_sheet(title=sheet_filas_campos_comunes_tipo)
+            
+    _write_sheet(ws2, sav_path.stem, filas_campos_comunes_tipo)
+
+
+    filas_campos_comunes_longitud = comparar_campos_comunes_longitud(columnas)
+
+    sheet_filas_campos_comunes_longitud = 'REVISION CAMPOS LONGITUD '
+    ws2 = wb.create_sheet(title=sheet_filas_campos_comunes_longitud)
+                
+    _write_sheet(ws2, sav_path.stem, filas_campos_comunes_longitud)
+    
     if callback_progreso:
         callback_progreso(95)
 
