@@ -59,7 +59,7 @@ def campos_numericos_sin_etiquetas_valores(columnas: list[dict]) -> list[dict]:
     for entrada in columnas:
         archivo = entrada["ARCHIVO"]
         for var in entrada["VARIABLES"]:
-            print("car",var["TIPO"] )
+         
             if var["TIPO"] != "float64":
                 continue
 
@@ -388,7 +388,32 @@ def _fmt_valores(val_dict: dict) -> str:
             key_str = str(k)
         partes.append(f"{key_str}. {v}")
     return "\n".join(partes)
-
+def _parse_fmt(fmt: str) -> tuple[str, str, str]:
+    """Devuelve (TIPO, LONGITUD, DECIMALES) desde formato SPSS."""
+    if not fmt:
+        return "", "", ""
+    m = re.match(r"[Aa](\d+)", fmt)
+    if m:
+        return "A", m.group(1), ""
+    m = re.match(r"[Ff](\d+)\.(\d+)", fmt)
+    if m:
+        return "N", m.group(1), m.group(2)
+    m = re.match(r"[Nn](\d+)", fmt)
+    if m:
+        return "N", m.group(1), "0"
+    m = re.match(r"E(\d+)\.(\d+)", fmt, re.IGNORECASE)
+    if m:
+        return "N", m.group(1), m.group(2)
+    m = re.match(r"(?:DOLLAR|COMMA|DOT|PCT)(\d+)\.?(\d+)?", fmt, re.IGNORECASE)
+    if m:
+        return "N", m.group(1) or "8", m.group(2) or "0"
+    m = re.match(r"(?:DATETIME|DTIME)(\d*)", fmt, re.IGNORECASE)
+    if m:
+        return "AN", m.group(1) or "20", ""
+    m = re.match(r"(?:ADATE|EDATE|JDATE|SDATE|QYR|MOYR|WKYR|DATE|TIME)(\d*)", fmt, re.IGNORECASE)
+    if m:
+        return "AN", m.group(1) or "8", ""
+    return "N", "8", "0"
 def _build_rows_for_sav(path: Path) -> dict:
     path = Path(path)
     df, meta = pyreadstat.read_sav(path)
@@ -396,17 +421,19 @@ def _build_rows_for_sav(path: Path) -> dict:
     col_labels = meta.column_names_to_labels or {}
     val_labels = meta.variable_value_labels or {}
     storage_width = meta.variable_storage_width or {}
+    formats    = meta.original_variable_types or {}
     variables = []
 
     for col in meta.column_names:
-       
+        fmt         = formats.get(col, "")
+        tipo, longitud, _ = _parse_fmt(fmt)
 
         variables.append({
             "CAMPO": col,
             "ETIQUETA": col_labels.get(col, ""),
             "ETIQUETAS DE VALORES": _fmt_valores(val_labels.get(col, {})),
             "TIPO":str(df[col].dtype),
-            "LONGITUD": storage_width.get(col),
+            "LONGITUD": longitud,
         })
 
     return {
@@ -536,50 +563,64 @@ def generar_revision_excel(
 
     filas = comparar_campos_comunes(columnas)
     sheet_name = 'REVISION ETIQUETAS'
-    ws = wb.create_sheet(title=sheet_name)
-  
-    _write_sheet(ws, sav_path.stem, filas)
+    
+    if filas :
+        ws = wb.create_sheet(title=sheet_name)
+        _write_sheet(ws, sav_path.stem, filas)
 
     filas_valores = comparar_valores_comunes(columnas)
     sheet_name_valores = 'REVISION VALORES'
-    ws2 = wb.create_sheet(title=sheet_name_valores)
+    
 
-    _write_sheet(ws2, sav_path.stem, filas_valores)
+    if filas_valores :
+        ws2 = wb.create_sheet(title=sheet_name_valores)
+        _write_sheet(ws2, sav_path.stem, filas_valores)
 
     filas_campos_sin_etiqueta = campos_sin_etiquetas(columnas)
  
     sheet_campos_sin_etiqueta = 'REVISION CAMPOS SIN ETIQUETAS'
-    ws2 = wb.create_sheet(title=sheet_campos_sin_etiqueta)
-    _write_sheet(ws2, sav_path.stem, filas_campos_sin_etiqueta)
+    
+    print(filas_campos_sin_etiqueta)
+    if filas_campos_sin_etiqueta :
+        ws2 = wb.create_sheet(title=sheet_campos_sin_etiqueta)
+        _write_sheet(ws2, sav_path.stem, filas_campos_sin_etiqueta)
 
     filas_campos_sin_valores_etiqueta = campos_numericos_sin_etiquetas_valores(columnas)
     
     sheet_campos_sin_valores_etiqueta = 'REVISION CAMPOS NUM SIN VALORES'
-    ws2 = wb.create_sheet(title=sheet_campos_sin_valores_etiqueta)
     
-    _write_sheet(ws2, sav_path.stem, filas_campos_sin_valores_etiqueta)
+
+    if filas_campos_sin_valores_etiqueta:
+        ws2 = wb.create_sheet(title=sheet_campos_sin_valores_etiqueta)
+        _write_sheet(ws2, sav_path.stem, filas_campos_sin_valores_etiqueta)
 
     filas_campos_str_con_valores_etiqueta = campos_string_con_etiquetas_valores(columnas)
    
     sheet_campos_str_con_valores_etiqueta = 'REVISION CAMPOS str CON VALORES'
-    ws2 = wb.create_sheet(title=sheet_campos_str_con_valores_etiqueta)
-        
-    _write_sheet(ws2, sav_path.stem, filas_campos_str_con_valores_etiqueta)
+   
+
+    if filas_campos_str_con_valores_etiqueta :  
+        ws2 = wb.create_sheet(title=sheet_campos_str_con_valores_etiqueta)
+        _write_sheet(ws2, sav_path.stem, filas_campos_str_con_valores_etiqueta)
 
     filas_campos_comunes_tipo = comparar_campos_comunes_tipo(columnas)
 
-    sheet_filas_campos_comunes_tipo = 'REVISION CAMPOS TIPO '
-    ws2 = wb.create_sheet(title=sheet_filas_campos_comunes_tipo)
-            
-    _write_sheet(ws2, sav_path.stem, filas_campos_comunes_tipo)
+    sheet_filas_campos_comunes_tipo = 'REVISION CAMPOS TIPO'
+    
+
+    if filas_campos_comunes_tipo :
+        ws2 = wb.create_sheet(title=sheet_filas_campos_comunes_tipo)
+        _write_sheet(ws2, sav_path.stem, filas_campos_comunes_tipo)
 
 
     filas_campos_comunes_longitud = comparar_campos_comunes_longitud(columnas)
 
-    sheet_filas_campos_comunes_longitud = 'REVISION CAMPOS LONGITUD '
-    ws2 = wb.create_sheet(title=sheet_filas_campos_comunes_longitud)
-                
-    _write_sheet(ws2, sav_path.stem, filas_campos_comunes_longitud)
+    sheet_filas_campos_comunes_longitud = 'REVISION CAMPOS LONGITUD'
+    
+
+    if filas_campos_comunes_longitud :     
+        ws2 = wb.create_sheet(title=sheet_filas_campos_comunes_longitud)      
+        _write_sheet(ws2, sav_path.stem, filas_campos_comunes_longitud)
     
     if callback_progreso:
         callback_progreso(95)

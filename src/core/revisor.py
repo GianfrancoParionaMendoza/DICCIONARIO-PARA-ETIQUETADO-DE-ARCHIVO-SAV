@@ -26,17 +26,34 @@ def _total(col: str, df) -> int:
     except Exception:
         return 0
 
+def _es_vacio_mask(col: str, df):
+    """Devuelve una máscara booleana: True donde el valor se considera vacío."""
+    serie = df[col]
+    mask_na = serie.isna()
+
+    # Cubre tanto columnas 'object' clásicas como los nuevos StringDtype (Arrow)
+    es_texto = (
+        serie.dtype == object
+        or pd.api.types.is_string_dtype(serie)
+    )
+
+    if es_texto:
+        mask_str_vacio = serie.astype(str).str.strip().eq("") & ~mask_na
+        return mask_na | mask_str_vacio
+
+    return mask_na
+
 
 def _no_vacios(col: str, df) -> int:
     try:
-        return df[col].count()
+        return (~_es_vacio_mask(col, df)).sum()
     except Exception:
         return 0
 
 
 def _vacios(col: str, df) -> int:
     try:
-        return df[col].isna().sum()
+        return _es_vacio_mask(col, df).sum()
     except Exception:
         return 0
 
@@ -63,12 +80,19 @@ def _tipo_variable(col: str, df) -> str:
 def _build_rows_for_sav(path: str) -> list[dict]:
     """Lee un SAV y devuelve lista de dicts con los campos del diccionario."""
     df, meta = pyreadstat.read_sav(path)  # necesitamos df para min/max y errores
+
     col_labels = meta.column_names_to_labels or {}
     rows = []
+    
     for i, col in enumerate(meta.column_names, start=1):
+        if col == 'P302_O':
+            print("dtype:", df[col].dtype)
+            print("valores únicos:", df[col].unique())
+            print("value_counts:\n", df[col].value_counts(dropna=False))
+
         tipo= _tipo_variable(col, df)
         etiqueta    = col_labels.get(col, "")
-
+       
         total = _total(col, df)
         no_vacios = _no_vacios(col, df)
         vacios=_vacios(col, df)
@@ -81,7 +105,7 @@ def _build_rows_for_sav(path: str) -> list[dict]:
             "TOTAL":total,
             "NO VACIOS":no_vacios,
             "VACIOS":vacios,
-            "OBSERVACION":None
+            "OBSERVACION":"ERROR" if int(total) == int(vacios) else ""
         })
     return rows
 
